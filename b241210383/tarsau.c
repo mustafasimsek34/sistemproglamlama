@@ -1,39 +1,4 @@
-/*
- * TARSAU - ARŞIVLEME PROGRAMI
- * =============================
- * 
- * NASIL ÇALIŞTIRILIR:
- * 
- * 1. DERLEME:
- *    $ cd b241210383
- *    $ make
- *    Sonuç: tarsau programı oluşturulacak
- * 
- * 2. ARŞIV OLUŞTURMA (-b Modu):
- *    $ ./tarsau -b dosya1.txt dosya2.txt dosya3.txt -o arsiv.sau
- *    Parametreler:
- *      -b: Arşiv oluşturma modu
- *      dosya1, dosya2, ... : Birleştirilecek metin dosyaları
- *      -o: Çıktı dosyası adı
- * 
- * 3. ARŞIV AÇMA (-a Modu):
- *    $ ./tarsau -a arsiv.sau cikti_dizini
- *    Parametreler:
- *      -a: Arşiv açma modu
- *      arsiv.sau: Açılacak arşiv dosyası (.sau formatı)
- *      cikti_dizini: Dosyaların çıkarılacağı dizin (oluşturulmazsa yeni oluşturulur)
- * 
- * HATA KONTROLLERI:
- *   - Binary dosya: "X uyumsuzdur!" mesajı verir
- *   - Hatalı arşiv: "Arşiv dosyası uygunsuz veya bozuk!" mesajı verir
- * 
- * ÖRNEKLER:
- *   $ echo "test1" > f1.txt
- *   $ echo "test2" > f2.txt
- *   $ ./tarsau -b f1.txt f2.txt -o archive.sau
- *   $ ./tarsau -a archive.sau output
- *   $ cat output/f1.txt
- */
+
 
 /*
  * tarsau - Bir arşiv programı (sıkıştırma yapmayan, salt birleştirme)
@@ -75,8 +40,8 @@ typedef struct {
 /* ===== UTILITY FONKSİYONLAR ===== */
 
 /*
- * Metin dosyası mı kontrolü
- * Basit kontrol: dosyayı kısmen oku, kontrol et
+ * is_text_file() - Dosyanın metin formatı olup olmadığını kontrol et
+ * Null byte arıyoruz, varsa binary kabul edilir
  */
 int is_text_file(const char *filename) {
     FILE *f = fopen(filename, "rb");
@@ -96,7 +61,7 @@ int is_text_file(const char *filename) {
 }
 
 /*
- * Dosya boyutunu byte cinsinden döndür
+ * get_file_size() - Dosya boyutunu al
  */
 long get_file_size(const char *filename) {
     struct stat st;
@@ -107,7 +72,7 @@ long get_file_size(const char *filename) {
 }
 
 /*
- * Dosya izinlerini al (sadece rwx bitler)
+ * get_file_permissions() - Dosya izinlerini al (0777 maskesi ile rwx bitleri)
  */
 unsigned int get_file_permissions(const char *filename) {
     struct stat st;
@@ -118,7 +83,7 @@ unsigned int get_file_permissions(const char *filename) {
 }
 
 /*
- * İzinleri ayarlama
+ * set_file_permissions() - Dosya izinlerini ayarla (chmod kullanarak)
  */
 int set_file_permissions(const char *filename, unsigned int perms) {
     return chmod(filename, perms);
@@ -127,7 +92,7 @@ int set_file_permissions(const char *filename, unsigned int perms) {
 /* ===== BUILD (BIRLEŞTIRME) MOD ===== */
 
 /*
- * Organizasyon bölümünü string'e dönüştür
+ * create_org_section() - Organizasyon bölümü oluştur
  * Format: 10 bayt (boyut) + |dosya,izin,boyut| kayıtları
  */
 char *create_org_section(ArchiveMetadata *meta, unsigned long *out_size) {
@@ -169,7 +134,8 @@ char *create_org_section(ArchiveMetadata *meta, unsigned long *out_size) {
 }
 
 /*
- * Arşiv dosyasını oluştur
+ * build_archive() - Arşiv oluştur
+ * Dosyaları doğrula, meta topla, .sau formatında yaz
  */
 int build_archive(const char *output_file, int file_count, const char **input_files) {
     ArchiveMetadata meta = {0};
@@ -249,13 +215,14 @@ int build_archive(const char *output_file, int file_count, const char **input_fi
     
     fclose(archive);
     free(org_section);
+    printf("Dosyalar birleştirildi.\n");
     return 0;
 }
 
 /* ===== EXTRACT (AÇMA) MOD ===== */
 
 /*
- * Organizasyon bölümünü oku ve meta bilgi çıkar
+ * parse_org_section() - Organizasyon bölümünü oku ve parse et
  */
 int parse_org_section(FILE *archive, ArchiveMetadata *meta) {
     // İlk 10 baytı oku (organizasyon boyutu)
@@ -332,7 +299,7 @@ int parse_org_section(FILE *archive, ArchiveMetadata *meta) {
 }
 
 /*
- * Dizin oluştur (recursively)
+ * create_directory() - İç içe dizin yapısı oluştur (özyinelemeli)
  */
 int create_directory(const char *path) {
     char tmp[256];
@@ -358,7 +325,8 @@ int create_directory(const char *path) {
 }
 
 /*
- * Arşivi aç ve dosyaları çıkar
+ * extract_archive() - Arşivi aç ve dosyaları çıkar
+ * Organizasyon parse et, dizin oluştur, dosyaları çıkar, izinleri restore et
  */
 int extract_archive(const char *archive_file, const char *extract_dir) {
     FILE *archive = fopen(archive_file, "rb");
@@ -536,15 +504,19 @@ int main(int argc, char *argv[]) {
     if (mode == 1) {
         // BUILD modu
         result = build_archive(output_file, file_count, (const char **)input_files);
-        if (result == 0) {
-            printf("Dosyalar birleştirildi.\n");
+        if (result != 0) {
+            free(input_files);
+            return 1;
         }
         free(input_files);
         
     } else if (mode == 2) {
         // EXTRACT modu
         result = extract_archive(archive_file, extract_dir);
+        if (result != 0) {
+            return 1;
+        }
     }
     
-    return result == 0 ? 0 : 1;
+    return 0;
 }
